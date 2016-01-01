@@ -23,6 +23,8 @@ namespace kOS.AddOns
             public Type objType;
             public String name;
 
+            public Action<Boolean> callback;
+
             public Boolean isInstalled = false;
 
             public InstallableAddon(String kname, Type ktype) {
@@ -125,10 +127,18 @@ namespace kOS.AddOns
                         _installedAddons.Add(installable);
                         UnityEngine.Debug.Log ("kOS: Addon '" + installable.name + "' installed");
 
+                        if(installable.callback != null) {
+                            installable.callback(true);
+                        }
+
                     } catch(Exception e) {
 
                         UnityEngine.Debug.Log ("kOS: Addon '" + installable.name + "' could not be installed, an error occurred:");
                         UnityEngine.Debug.Log (e.ToString ());
+
+                        if(installable.callback != null) {
+                            installable.callback(false);
+                        }
 
                     }
 
@@ -159,6 +169,7 @@ namespace kOS.AddOns
 
         private Boolean _addonNameExists(String addonName) {
 
+            // Installed addons
             foreach(InstallableAddon installableAddon in _installedAddons) {
 
                 if(installableAddon.name.Equals(addonName)) {
@@ -166,6 +177,7 @@ namespace kOS.AddOns
                 }
             }
 
+            // Queued Addons
             foreach(InstallableAddon installableAddon in _queuedAddons) {
 
                 if(installableAddon.name.Equals(addonName)) {
@@ -177,14 +189,43 @@ namespace kOS.AddOns
 
         }
 
-        public static void installWhenReady(String addonName, Type objType) {
+        /*
+         * Queue an Addon to be Installed when kOS is ready
+         */
+        public static Boolean installWhenReady(String addonName, Type objType) {
 
             if (!Instance._addonNameExists (addonName)) {
                 
                 InstallableAddon installable = new InstallableAddon (addonName, objType);
                 Instance._queuedAddons.Add (installable);
 
+                return true;
+
             }
+
+            return false;
+
+        }
+
+        /*
+         * Queue an Addon to be Installed when kOS is ready
+         * 
+         * Include a callback to be executed when installed
+         * 
+         */
+        public static Boolean installWhenReady(String addonName, Type objType, Action<Boolean> callback) {
+
+            if (!Instance._addonNameExists (addonName)) {
+
+                InstallableAddon installable = new InstallableAddon (addonName, objType);
+                installable.callback = callback;
+                Instance._queuedAddons.Add (installable);
+
+                return true;
+
+            }
+
+            return false;
 
         }
 
