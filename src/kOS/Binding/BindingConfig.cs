@@ -1,6 +1,7 @@
 ﻿using kOS.Safe.Binding;
 using kOS.Safe.Utilities;
 using kOS.Suffixed;
+using kOS.AddOns;
 
 namespace kOS.Binding
 {
@@ -10,7 +11,9 @@ namespace kOS.Binding
         public override void AddTo(SharedObjects shared)
         {
             shared.BindingMgr.AddGetter("CONFIG", () => SafeHouse.Config);
-            shared.BindingMgr.AddGetter("ADDONS", () => new AddonList(shared));
+
+            AddonManager addonMgr = AddonManager.Instance;
+            addonMgr.initialize (shared);
         }
     }
 }
