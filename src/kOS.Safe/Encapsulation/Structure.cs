@@ -21,7 +21,7 @@ namespace kOS.Safe.Encapsulation
             instanceSuffixes = new Dictionary<string, ISuffix>(StringComparer.OrdinalIgnoreCase);
         }
 
-        protected void AddSuffix(string suffixName, ISuffix suffixToAdd)
+        public void AddSuffix(string suffixName, ISuffix suffixToAdd)
         {
             AddSuffix(new[]{suffixName}, suffixToAdd);
         }
