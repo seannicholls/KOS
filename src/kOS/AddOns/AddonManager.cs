@@ -15,20 +15,56 @@ namespace kOS.AddOns
 {
     public sealed class AddonManager
     {
-        
+
+        private class InstallableAddon {
+            
+            private Addon _addon;
+
+            public Type objType;
+            public String name;
+
+            public Boolean isInstalled = false;
+
+            public InstallableAddon(String kname, Type ktype) {
+                
+                this.name = kname;
+                this.objType = ktype;
+            }
+
+            public Addon addon {
+
+                get {
+                    return _addon;
+                }
+
+            }
+
+            public Addon CreateInstance(SharedObjects shared) {
+                
+                _addon = (Addon)Activator.CreateInstance (objType, shared);
+                return _addon;
+            }
+
+        }
+
         private static readonly AddonManager _instance = new AddonManager();
-        private AddonList _addonList = null;
-        private SharedObjects _shared;
-        private List<String> _installedAddons = new List<String>();
-        private readonly List<String> _protectedAddons= new List<String>() {
+
+        private AddonList _addonList = new AddonList ();
+        private SharedObjects _shared = null;
+
+        private List<InstallableAddon> _installedAddons = new List<InstallableAddon>();
+        private List<InstallableAddon> _queuedAddons = new List<InstallableAddon>();
+
+        private readonly List<String> _protectedAddonNames= new List<String>() {
             "LIST",
             "KAC",
             "RT",
             "AGX",
             "IR",
         };
+     
             
-        private AddonManager(){}
+        private AddonManager() {}
 
         public static AddonManager Instance
         {
@@ -38,16 +74,21 @@ namespace kOS.AddOns
             }
         }
 
+        public static bool isAvailable() {
+
+            return AddonManager.Instance.isReady ();
+
+        }
+
         public bool isReady() {
             
-            return (_addonList != null);
+            return (_addonList != null) && (_shared != null);
 
         }
 
         public void initialize(SharedObjects shared) {
 
             _shared = shared;
-            _addonList = new AddonList();
 
             // SUFFIXES
             _addonList.AddSuffix("LIST", new Suffix<ListValue>(GetAddonList, "List installed addons"));
@@ -55,10 +96,45 @@ namespace kOS.AddOns
             // ADDONS
             _shared.BindingMgr.AddGetter("ADDONS", () => _addonList);
 
-                addAddon ("KAC", typeof(AddOns.KerbalAlarmClock.Addon), true);
-                addAddon ("RT", typeof(AddOns.RemoteTech.Addon), true);
-                addAddon ("AGX", typeof(AddOns.ActionGroupsExtended.Addon), true);
-                addAddon ("IR", typeof(AddOns.InfernalRobotics.Addon), true);
+                _installAddon ("KAC", typeof(AddOns.KerbalAlarmClock.Addon), true);
+                _installAddon ("RT", typeof(AddOns.RemoteTech.Addon), true);
+                _installAddon ("AGX", typeof(AddOns.ActionGroupsExtended.Addon), true);
+                _installAddon ("IR", typeof(AddOns.InfernalRobotics.Addon), true);
+
+            // INSTALL QUEUED ADDONS
+            _installQueuedAddons();
+
+        }
+
+        private void _installQueuedAddons() {
+
+            if (_queuedAddons.Count > 0) {
+                UnityEngine.Debug.Log ("kOS: Installing queued addons...");
+            }
+
+            foreach (InstallableAddon installable in _queuedAddons) {
+
+                if (!installable.isInstalled) {
+                    
+                    try {
+                        
+                        installable.CreateInstance (_shared);
+                        _addonList.AddAddon (new[]{ installable.name }, new Suffix<Addon> (() => installable.addon));
+                        installable.isInstalled = true;
+
+                        _installedAddons.Add(installable);
+                        UnityEngine.Debug.Log ("kOS: Addon '" + installable.name + "' installed");
+
+                    } catch(Exception e) {
+
+                        UnityEngine.Debug.Log ("kOS: Addon '" + installable.name + "' could not be installed, an error occurred:");
+                        UnityEngine.Debug.Log (e.ToString ());
+
+                    }
+
+                }
+
+            }
 
         }
 
@@ -66,8 +142,10 @@ namespace kOS.AddOns
         {
             ListValue list = new ListValue();
 
-            foreach(String elm in _installedAddons) {
-                list.Add (elm);
+            foreach(InstallableAddon addon in _installedAddons) {
+                if (addon.isInstalled) {
+                    list.Add (addon.name);
+                }
             }
 
             return list;
@@ -75,45 +153,74 @@ namespace kOS.AddOns
 
         public static Boolean install(String addonName, Type objType) {
 
-            return AddonManager.Instance.addAddon (addonName, objType, false);
+            return Instance._installAddon (addonName, objType, false);
 
         }
 
-        public Boolean addAddon(String addonName, Type objType, Boolean forceful) {
+        private Boolean _addonNameExists(String addonName) {
 
-            if(!forceful && _protectedAddons.Contains(addonName)) {
-                    
-                UnityEngine.Debug.Log ("kOS: Addon '" + addonName + "' is reserved, refusing install.");
-                return false;
+            foreach(InstallableAddon installableAddon in _installedAddons) {
 
-            } else if (!forceful && _installedAddons.Contains (addonName)) {
+                if(installableAddon.name.Equals(addonName)) {
+                    return true;
+                }
+            }
+
+            foreach(InstallableAddon installableAddon in _queuedAddons) {
+
+                if(installableAddon.name.Equals(addonName)) {
+                    return true;
+                }
+            }
+
+            return false;
+
+        }
+
+        public static void installWhenReady(String addonName, Type objType) {
+
+            if (!Instance._addonNameExists (addonName)) {
+                
+                InstallableAddon installable = new InstallableAddon (addonName, objType);
+                Instance._queuedAddons.Add (installable);
+
+            }
+
+        }
+
+        private Boolean _installAddon(String addonName, Type objType, Boolean forceful) {
+            
+            if ( !forceful && (_addonNameExists(addonName) || _protectedAddonNames.Contains(addonName)) ) {
             
                 UnityEngine.Debug.Log ("kOS: Addon '" + addonName + "' is already installed");
                 return false;
             
             } else {
 
+
                 try {
 
-                    // intantiate the object (addon)
-                    Addon theAddon = (Addon)Activator.CreateInstance (objType, _shared);
+                    // "Install"
+                    InstallableAddon installable = new InstallableAddon(addonName, objType);
 
-                    // add it to ADDONS
-                    _addonList.AddAddon (new[]{addonName}, new Suffix<Addon> (() => theAddon));
+                    installable.CreateInstance (_shared);
+                    _addonList.AddAddon (new[]{ installable.name }, new Suffix<Addon> (() => installable.addon));
+                    installable.isInstalled = true;
+
+                    _installedAddons.Add(installable);
+                    UnityEngine.Debug.Log ("kOS: Addon '" + installable.name + "' installed");
+
+                    return true;
+
 
                 } catch(Exception e) {
 
-                    UnityEngine.Debug.Log ("kOS: Addon '" + addonName + "' could not be installed");
-                    UnityEngine.Debug.Log (e.Message);
+                    UnityEngine.Debug.Log ("kOS: Addon '" + addonName + "' could not be installed, an error occurred:");
+                    UnityEngine.Debug.Log (e.ToString ());
 
                     return false;
+
                 }
-
-
-                // Success
-                UnityEngine.Debug.Log ("kOS: Addon '" + addonName + "' was installed");
-                _installedAddons.Add (addonName);
-                return true;
 
             }
 
